@@ -39,7 +39,7 @@
   }
 
   // ---------------- screen ----------------
-  // Loading view: a black dot with the percentage and a progress ring (no card, no logo).
+  // Loading view: the current step and a thin progress bar (no card, no logo).
   // Questions and errors (passcode, new data, other tab) show in a small glass card.
   const css = `
   #ahw{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;
@@ -63,16 +63,13 @@
   #ahw .row{display:flex;gap:8px;margin-top:12px}
   #ahw .row button{flex:1}
   #ahw .err{color:#c62828;margin-top:10px;min-height:1em;white-space:pre-wrap;word-break:break-word}
-  #ahw .loader{display:grid;justify-items:center;gap:8px;text-align:center}
-  #ahw .orb{position:relative;width:132px;height:132px;display:grid;place-items:center;margin-bottom:8px}
-  #ahw .orb svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
-  #ahw .orb .track{fill:none;stroke:#ececf0;stroke-width:4}
-  #ahw .orb .arc{fill:none;stroke:#111113;stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
-  #ahw .dot{width:96px;height:96px;border-radius:50%;background:#111113;display:grid;place-items:center;
-    box-shadow:0 18px 36px -18px rgba(17,17,19,.55);animation:ahwpulse 2.4s ease-in-out infinite;will-change:transform}
-  @keyframes ahwpulse{50%{transform:scale(1.05)}}
-  #ahw #ahw-pct{font-family:"Geist Mono Variable",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:20px;font-weight:500;color:#fff;letter-spacing:-.02em}
-  @media (prefers-reduced-motion:reduce){#ahw .dot{animation:none}}
+  #ahw .loader{width:min(280px,100%);display:grid;gap:12px;text-align:center}
+  #ahw .ltrack{position:relative;height:4px;border-radius:999px;background:#ececf0;overflow:hidden}
+  #ahw .lfill{position:absolute;inset:0;background:#111113;border-radius:999px;transform-origin:left center;transform:scaleX(0);will-change:transform}
+  #ahw .lsheen{position:absolute;top:0;bottom:0;left:0;width:30%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);
+    animation:ahwsheen 1.6s linear infinite;will-change:transform}
+  @keyframes ahwsheen{from{transform:translateX(-100%)}to{transform:translateX(340%)}}
+  @media (prefers-reduced-motion:reduce){#ahw .lsheen{display:none}}
   #ahw #ahw-status{color:#4b4c52;min-height:18px}
   #ahw .slow{color:#74757c;font-size:12px;min-height:16px}
   #ahw .slow a{color:#111113}
@@ -96,49 +93,43 @@
     $("#ahw-body").innerHTML = `<div class="card"><p class="title">Ads Hub</p><p class="sub">Test version for the PLTFRM ads team</p>${html}</div>`;
   }
 
-  // ---- loading view: a black dot with the percentage and a thin ring ----
-  // Kept light on purpose: the page's main thread is busy starting Python, so nothing here redraws every frame.
-  const RING = 2 * Math.PI * 62;
-  const B = { timer: 0, target: 0, cap: 0, shown: -1, changed: 0, text: "" };
+  // ---- loading view: status text and a thin bar ----
+  // The page's main thread is busy starting Python, so the bar moves with CSS transforms only (the browser animates
+  // those on its own thread). Each step sets a target; a long eased transition creeps toward the next step.
+  const B = { timer: 0, target: 0, cap: 0, changed: 0, text: "" };
   function blobView() {
     $("#ahw-body").innerHTML = `<div class="loader">
-      <div class="orb">
-        <svg viewBox="0 0 132 132" aria-hidden="true"><circle class="track" cx="66" cy="66" r="62"/>
-          <circle class="arc" id="ahw-arc" cx="66" cy="66" r="62" stroke-dasharray="${RING.toFixed(1)}" stroke-dashoffset="${RING.toFixed(1)}"/></svg>
-        <div class="dot"><span id="ahw-pct">0%</span></div>
-      </div>
       <div id="ahw-status" role="status" aria-live="polite"></div>
+      <div class="ltrack"><div class="lfill" id="ahw-fill"></div><div class="lsheen"></div></div>
       <div class="slow" id="ahw-slow"></div></div>`;
-    B.shown = -1; B.changed = performance.now();
-    clearInterval(B.timer); B.timer = setInterval(tick, 400);
-    tick();
+    B.changed = performance.now();
+    clearInterval(B.timer); B.timer = setInterval(watch, 2000);
   }
   function stopBlob() { clearInterval(B.timer); B.timer = 0; }
-  function tick() {
-    if (!$("#ahw-pct")) { stopBlob(); return; }
-    // creep toward the next step so a long step still moves
-    if (B.target < B.cap) B.target = Math.min(B.cap, B.target + 0.7);
-    const n = Math.floor(B.target);
-    if (n !== B.shown) {
-      B.shown = n;
-      $("#ahw-pct").textContent = n + "%";
-      $("#ahw-arc").setAttribute("stroke-dashoffset", (RING * (1 - n / 100)).toFixed(1));
-    }
-    const slow = $("#ahw-slow");
+  function moveBar() {
+    const f = $("#ahw-fill"); if (!f) return;
+    const done = B.target >= 100;
+    f.style.transition = done ? "transform .3s ease-out" : "transform 14s cubic-bezier(.15,.7,.25,1)";
+    f.style.transform = `scaleX(${(done ? 1 : B.cap / 100).toFixed(3)})`;
+  }
+  function watch() {
+    const slow = $("#ahw-slow"); if (!slow) { stopBlob(); return; }
     const stuck = performance.now() - B.changed > 40000;
     if (stuck && !slow.firstChild) slow.innerHTML = `Taking longer than usual. <a href="javascript:location.reload()">Reload</a>`;
     if (!stuck && slow.firstChild) slow.textContent = "";
   }
   // progress(text, p, cap): p is how far along we are (0 to 100); the blob creeps toward cap until the next step
   function progress(text, p, cap) {
-    if (!$("#ahw-core")) blobView();
+    const fresh = !$("#ahw-fill");
+    if (fresh) blobView();
     if (p !== undefined && p > B.target) { B.target = p; B.changed = performance.now(); }
-    B.cap = Math.max(B.target, cap !== undefined ? cap : Math.min(97, B.target + 12));
+    B.cap = Math.max(B.cap, B.target, cap !== undefined ? cap : Math.min(97, B.target + 12));
     if (B.target >= 100) B.cap = 100;
-    if (text !== B.text) { B.text = text; B.changed = performance.now(); $("#ahw-status").textContent = text; }
-    tick();
+    if (text !== B.text || fresh) { B.text = text; B.changed = performance.now(); $("#ahw-status").textContent = text; }
+    if (fresh) { const f = $("#ahw-fill"); f.style.transform = `scaleX(${(B.target / 100).toFixed(3)})`; void f.offsetWidth; }
+    moveBar();
   }
-  function bump(p) { if (p > B.target) { B.target = p; B.changed = performance.now(); } }
+  function bump(p) { if (p > B.target) { B.target = p; B.cap = Math.max(B.cap, Math.min(97, p + 12)); B.changed = performance.now(); moveBar(); } }
   function fail(msg) {
     body(`<div class="err" style="margin-top:0">${msg}</div><div class="row"><button onclick="location.reload()">Try again</button></div>`);
   }
@@ -437,7 +428,7 @@
     installBridge();
     progress("Opening the hub…", 100);
     await import(new URL(meta.entry, location.href).href);
-    await new Promise((r) => setTimeout(r, 350));      // let the ring reach 100%
+    await new Promise((r) => setTimeout(r, 300));      // let the bar reach the end
     stopBlob();
     $("#ahw").remove();
   }
