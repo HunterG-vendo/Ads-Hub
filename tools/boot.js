@@ -39,7 +39,7 @@
   }
 
   // ---------------- screen ----------------
-  // Loading view: black liquid drops fly in and merge into a blob that grows with the load (no card, no logo).
+  // Loading view: a black dot with the percentage and a progress ring (no card, no logo).
   // Questions and errors (passcode, new data, other tab) show in a small glass card.
   const css = `
   #ahw{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;
@@ -63,10 +63,16 @@
   #ahw .row{display:flex;gap:8px;margin-top:12px}
   #ahw .row button{flex:1}
   #ahw .err{color:#c62828;margin-top:10px;min-height:1em;white-space:pre-wrap;word-break:break-word}
-  #ahw .loader{display:grid;justify-items:center;gap:6px;text-align:center}
-  #ahw .loader svg{display:block;width:240px;height:200px;overflow:visible}
-  #ahw #ahw-pct{font-family:"Geist Mono Variable",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:22px;font-weight:500;
-    fill:#fff;text-anchor:middle;dominant-baseline:central;letter-spacing:-.02em}
+  #ahw .loader{display:grid;justify-items:center;gap:8px;text-align:center}
+  #ahw .orb{position:relative;width:132px;height:132px;display:grid;place-items:center;margin-bottom:8px}
+  #ahw .orb svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+  #ahw .orb .track{fill:none;stroke:#ececf0;stroke-width:4}
+  #ahw .orb .arc{fill:none;stroke:#111113;stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
+  #ahw .dot{width:96px;height:96px;border-radius:50%;background:#111113;display:grid;place-items:center;
+    box-shadow:0 18px 36px -18px rgba(17,17,19,.55);animation:ahwpulse 2.4s ease-in-out infinite;will-change:transform}
+  @keyframes ahwpulse{50%{transform:scale(1.05)}}
+  #ahw #ahw-pct{font-family:"Geist Mono Variable",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:20px;font-weight:500;color:#fff;letter-spacing:-.02em}
+  @media (prefers-reduced-motion:reduce){#ahw .dot{animation:none}}
   #ahw #ahw-status{color:#4b4c52;min-height:18px}
   #ahw .slow{color:#74757c;font-size:12px;min-height:16px}
   #ahw .slow a{color:#111113}
@@ -90,61 +96,38 @@
     $("#ahw-body").innerHTML = `<div class="card"><p class="title">Ads Hub</p><p class="sub">Test version for the PLTFRM ads team</p>${html}</div>`;
   }
 
-  // ---- the blob ----
-  const NS = "http://www.w3.org/2000/svg";
-  const CX = 120, CY = 100;
-  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const B = { raf: 0, last: 0, shown: 0, target: 0, cap: 0, drops: [], spawnedAt: 0, spawnStep: 0, changed: 0, text: "" };
+  // ---- loading view: a black dot with the percentage and a thin ring ----
+  // Kept light on purpose: the page's main thread is busy starting Python, so nothing here redraws every frame.
+  const RING = 2 * Math.PI * 62;
+  const B = { timer: 0, target: 0, cap: 0, shown: -1, changed: 0, text: "" };
   function blobView() {
     $("#ahw-body").innerHTML = `<div class="loader">
-      <svg viewBox="0 0 240 200" aria-hidden="true">
-        <defs><filter id="ahw-goo" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur in="SourceGraphic" stdDeviation="10" result="b"/>
-          <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9"/></filter></defs>
-        <g id="ahw-g" filter="url(#ahw-goo)" fill="#111113"><circle id="ahw-core" cx="${CX}" cy="${CY}" r="28"/></g>
-        <text id="ahw-pct" x="${CX}" y="${CY + 1}">0%</text>
-      </svg>
+      <div class="orb">
+        <svg viewBox="0 0 132 132" aria-hidden="true"><circle class="track" cx="66" cy="66" r="62"/>
+          <circle class="arc" id="ahw-arc" cx="66" cy="66" r="62" stroke-dasharray="${RING.toFixed(1)}" stroke-dashoffset="${RING.toFixed(1)}"/></svg>
+        <div class="dot"><span id="ahw-pct">0%</span></div>
+      </div>
       <div id="ahw-status" role="status" aria-live="polite"></div>
       <div class="slow" id="ahw-slow"></div></div>`;
-    B.drops = []; B.last = performance.now(); B.changed = B.last;
-    cancelAnimationFrame(B.raf); B.raf = requestAnimationFrame(tick);
+    B.shown = -1; B.changed = performance.now();
+    clearInterval(B.timer); B.timer = setInterval(tick, 400);
+    tick();
   }
-  function stopBlob() { cancelAnimationFrame(B.raf); B.raf = 0; B.drops = []; }
-  function spawn(now) {
-    const g = $("#ahw-g"); if (!g) return;
-    const a = Math.random() * Math.PI * 2, R = 86 + Math.random() * 6, r = 7 + Math.random() * 7;
-    const c = document.createElementNS(NS, "circle");
-    c.setAttribute("r", r.toFixed(1));
-    g.appendChild(c);
-    B.drops.push({ c, a, R, t0: now, dur: 900 + Math.random() * 500 });
-  }
-  function tick(now) {
-    if (!$("#ahw-core")) { B.raf = 0; return; }
-    const dt = Math.min(100, now - B.last); B.last = now;
-    // creep toward the next step so a long step still moves, then ease the shown number
-    if (B.target < B.cap) B.target = Math.min(B.cap, B.target + dt * 0.0018);
-    B.shown += (B.target - B.shown) * Math.min(1, dt / 220);
-    const coreR = 28 + B.shown * 0.2;
-    $("#ahw-core").setAttribute("r", coreR.toFixed(2));
-    $("#ahw-pct").textContent = Math.floor(B.shown + 0.001) + "%";
-    if (!calm) {
-      const step = Math.floor(B.shown / 3);
-      if ((step > B.spawnStep && B.shown < 99.5) || now - B.spawnedAt > 1400) { B.spawnStep = Math.max(B.spawnStep, step); B.spawnedAt = now; spawn(now); }
+  function stopBlob() { clearInterval(B.timer); B.timer = 0; }
+  function tick() {
+    if (!$("#ahw-pct")) { stopBlob(); return; }
+    // creep toward the next step so a long step still moves
+    if (B.target < B.cap) B.target = Math.min(B.cap, B.target + 0.7);
+    const n = Math.floor(B.target);
+    if (n !== B.shown) {
+      B.shown = n;
+      $("#ahw-pct").textContent = n + "%";
+      $("#ahw-arc").setAttribute("stroke-dashoffset", (RING * (1 - n / 100)).toFixed(1));
     }
-    B.drops = B.drops.filter((d) => {
-      const k = Math.min(1, (now - d.t0) / d.dur), e = Math.pow(k, 2.2);
-      const dist = d.R + (coreR * 0.35 - d.R) * e;
-      d.c.setAttribute("cx", (CX + dist * Math.cos(d.a)).toFixed(1));
-      d.c.setAttribute("cy", (CY + dist * Math.sin(d.a)).toFixed(1));
-      if (k >= 1) { d.c.remove(); return false; }
-      return true;
-    });
     const slow = $("#ahw-slow");
-    if (slow) {
-      const stuck = now - B.changed > 40000;
-      if (stuck && !slow.firstChild) slow.innerHTML = `Taking longer than usual. <a href="javascript:location.reload()">Reload</a>`;
-      if (!stuck && slow.firstChild) slow.textContent = "";
-    }
-    B.raf = requestAnimationFrame(tick);
+    const stuck = performance.now() - B.changed > 40000;
+    if (stuck && !slow.firstChild) slow.innerHTML = `Taking longer than usual. <a href="javascript:location.reload()">Reload</a>`;
+    if (!stuck && slow.firstChild) slow.textContent = "";
   }
   // progress(text, p, cap): p is how far along we are (0 to 100); the blob creeps toward cap until the next step
   function progress(text, p, cap) {
@@ -153,6 +136,7 @@
     B.cap = Math.max(B.target, cap !== undefined ? cap : Math.min(97, B.target + 12));
     if (B.target >= 100) B.cap = 100;
     if (text !== B.text) { B.text = text; B.changed = performance.now(); $("#ahw-status").textContent = text; }
+    tick();
   }
   function bump(p) { if (p > B.target) { B.target = p; B.changed = performance.now(); } }
   function fail(msg) {
@@ -453,7 +437,7 @@
     installBridge();
     progress("Opening the hub…", 100);
     await import(new URL(meta.entry, location.href).href);
-    await new Promise((r) => setTimeout(r, 450));      // let the blob reach 100%
+    await new Promise((r) => setTimeout(r, 350));      // let the ring reach 100%
     stopBlob();
     $("#ahw").remove();
   }
