@@ -39,16 +39,20 @@
   }
 
   // ---------------- screen ----------------
+  // Loading view: black liquid drops fly in and merge into a blob that grows with the load (no card, no logo).
+  // Questions and errors (passcode, new data, other tab) show in a small glass card.
   const css = `
   #ahw{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;
     background:#fff;font-family:"Geist Variable",ui-sans-serif,system-ui,sans-serif;color:#111113;font-size:13px}
   #ahw::before{content:"";position:fixed;inset:0;pointer-events:none;background:
     radial-gradient(38rem 26rem at 8% -4%,rgba(17,17,19,.06),transparent 70%),
     radial-gradient(34rem 30rem at 96% 8%,rgba(17,17,19,.05),transparent 70%)}
-  #ahw .card{position:relative;width:100%;max-width:380px;border-radius:24px;padding:28px;
+  #ahw .shell{position:relative;width:100%;max-width:380px;display:grid;justify-items:center;gap:22px}
+  #ahw #ahw-body{width:100%;display:grid;justify-items:center}
+  #ahw .card{position:relative;width:100%;border-radius:24px;padding:26px 26px 22px;
     background:rgba(255,255,255,.72);border:1px solid #e8e8ec;box-shadow:0 1px 0 rgba(255,255,255,.9) inset,0 18px 50px -24px rgba(17,17,19,.25);
     backdrop-filter:blur(18px)}
-  #ahw .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px;margin-bottom:4px}
+  #ahw .title{font-weight:600;font-size:16px;margin:0 0 4px;letter-spacing:-.01em}
   #ahw .sub{color:#74757c;margin:0 0 18px}
   #ahw label{display:block;font-weight:500;margin-bottom:6px}
   #ahw input{width:100%;box-sizing:border-box;height:40px;border-radius:999px;border:1px solid #d6d6dc;padding:0 16px;font:inherit;font-size:14px;outline:none;background:#fff}
@@ -59,34 +63,98 @@
   #ahw .row{display:flex;gap:8px;margin-top:12px}
   #ahw .row button{flex:1}
   #ahw .err{color:#c62828;margin-top:10px;min-height:1em;white-space:pre-wrap;word-break:break-word}
-  #ahw .status{display:flex;align-items:center;gap:10px;color:#4b4c52;margin-top:4px}
-  #ahw .bar{height:6px;border-radius:999px;background:#ececf0;overflow:hidden;margin-top:14px}
-  #ahw .bar i{display:block;height:100%;width:0;background:#111113;border-radius:999px;transition:width .3s}
-  #ahw .spin{width:14px;height:14px;border-radius:50%;border:2px solid #d6d6dc;border-top-color:#111113;animation:ahwspin .8s linear infinite;flex:none}
-  #ahw .foot{margin-top:18px;color:#74757c;font-size:12px;display:flex;justify-content:space-between;gap:8px}
+  #ahw .loader{display:grid;justify-items:center;gap:6px;text-align:center}
+  #ahw .loader svg{display:block;width:240px;height:200px;overflow:visible}
+  #ahw #ahw-pct{font-family:"Geist Mono Variable",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:22px;font-weight:500;
+    fill:#fff;text-anchor:middle;dominant-baseline:central;letter-spacing:-.02em}
+  #ahw #ahw-status{color:#4b4c52;min-height:18px}
+  #ahw .slow{color:#74757c;font-size:12px;min-height:16px}
+  #ahw .slow a{color:#111113}
+  #ahw .foot{color:#74757c;font-size:12px;display:flex;justify-content:center;flex-wrap:wrap;gap:6px 10px}
   #ahw .foot a{color:#74757c}
-  @keyframes ahwspin{to{transform:rotate(360deg)}}
   #ahw-save{position:fixed;left:16px;bottom:16px;z-index:2147483000;padding:6px 12px;border-radius:999px;font:12px "Geist Variable",ui-sans-serif,system-ui,sans-serif;
     background:rgba(255,255,255,.9);border:1px solid #e8e8ec;color:#4b4c52;box-shadow:0 6px 20px -12px rgba(17,17,19,.3);transition:opacity .3s;opacity:0;pointer-events:none}
   #ahw-save.on{opacity:1}`;
-  const logo = `<svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#111113"/><path d="M8 22 L14 14 L18 18 L24 10" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
   function mount() {
     if ($("#ahw")) return;
     if (!$("#ahw-css")) { const st = document.createElement("style"); st.id = "ahw-css"; st.textContent = css; document.head.appendChild(st); }
     const d = document.createElement("div"); d.id = "ahw";
-    d.innerHTML = `<div class="card"><div class="brand">${logo}<span>Ads Hub</span></div><p class="sub">Test version for the PLTFRM ads team</p><div id="ahw-body"></div>
-      <div class="foot"><span id="ahw-ver"></span><a href="?reset=1" id="ahw-reset">Start over</a></div></div>`;
+    d.innerHTML = `<div class="shell"><div id="ahw-body"></div>
+      <div class="foot"><span>Ads Hub</span><span id="ahw-ver"></span><a href="?reset=1" id="ahw-reset">Start over</a></div></div>`;
     document.body.appendChild(d);
   }
-  function body(html) { $("#ahw-body").innerHTML = html; }
-  let pct = 0;
-  function progress(text, p) {
-    if (p !== undefined) pct = Math.max(pct, p);
-    if (!$("#ahw-status")) body(`<div class="status"><span class="spin"></span><span id="ahw-status"></span></div><div class="bar"><i id="ahw-bar"></i></div><div class="err" id="ahw-err"></div>`);
-    $("#ahw-status").textContent = text;
-    $("#ahw-bar").style.width = pct + "%";
+  // card for questions and errors
+  function body(html) {
+    stopBlob();
+    $("#ahw-body").innerHTML = `<div class="card"><p class="title">Ads Hub</p><p class="sub">Test version for the PLTFRM ads team</p>${html}</div>`;
   }
+
+  // ---- the blob ----
+  const NS = "http://www.w3.org/2000/svg";
+  const CX = 120, CY = 100;
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const B = { raf: 0, last: 0, shown: 0, target: 0, cap: 0, drops: [], spawnedAt: 0, spawnStep: 0, changed: 0, text: "" };
+  function blobView() {
+    $("#ahw-body").innerHTML = `<div class="loader">
+      <svg viewBox="0 0 240 200" aria-hidden="true">
+        <defs><filter id="ahw-goo" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur in="SourceGraphic" stdDeviation="10" result="b"/>
+          <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9"/></filter></defs>
+        <g id="ahw-g" filter="url(#ahw-goo)" fill="#111113"><circle id="ahw-core" cx="${CX}" cy="${CY}" r="28"/></g>
+        <text id="ahw-pct" x="${CX}" y="${CY + 1}">0%</text>
+      </svg>
+      <div id="ahw-status" role="status" aria-live="polite"></div>
+      <div class="slow" id="ahw-slow"></div></div>`;
+    B.drops = []; B.last = performance.now(); B.changed = B.last;
+    cancelAnimationFrame(B.raf); B.raf = requestAnimationFrame(tick);
+  }
+  function stopBlob() { cancelAnimationFrame(B.raf); B.raf = 0; B.drops = []; }
+  function spawn(now) {
+    const g = $("#ahw-g"); if (!g) return;
+    const a = Math.random() * Math.PI * 2, R = 86 + Math.random() * 6, r = 7 + Math.random() * 7;
+    const c = document.createElementNS(NS, "circle");
+    c.setAttribute("r", r.toFixed(1));
+    g.appendChild(c);
+    B.drops.push({ c, a, R, t0: now, dur: 900 + Math.random() * 500 });
+  }
+  function tick(now) {
+    if (!$("#ahw-core")) { B.raf = 0; return; }
+    const dt = Math.min(100, now - B.last); B.last = now;
+    // creep toward the next step so a long step still moves, then ease the shown number
+    if (B.target < B.cap) B.target = Math.min(B.cap, B.target + dt * 0.0018);
+    B.shown += (B.target - B.shown) * Math.min(1, dt / 220);
+    const coreR = 28 + B.shown * 0.2;
+    $("#ahw-core").setAttribute("r", coreR.toFixed(2));
+    $("#ahw-pct").textContent = Math.floor(B.shown + 0.001) + "%";
+    if (!calm) {
+      const step = Math.floor(B.shown / 3);
+      if ((step > B.spawnStep && B.shown < 99.5) || now - B.spawnedAt > 1400) { B.spawnStep = Math.max(B.spawnStep, step); B.spawnedAt = now; spawn(now); }
+    }
+    B.drops = B.drops.filter((d) => {
+      const k = Math.min(1, (now - d.t0) / d.dur), e = Math.pow(k, 2.2);
+      const dist = d.R + (coreR * 0.35 - d.R) * e;
+      d.c.setAttribute("cx", (CX + dist * Math.cos(d.a)).toFixed(1));
+      d.c.setAttribute("cy", (CY + dist * Math.sin(d.a)).toFixed(1));
+      if (k >= 1) { d.c.remove(); return false; }
+      return true;
+    });
+    const slow = $("#ahw-slow");
+    if (slow) {
+      const stuck = now - B.changed > 40000;
+      if (stuck && !slow.firstChild) slow.innerHTML = `Taking longer than usual. <a href="javascript:location.reload()">Reload</a>`;
+      if (!stuck && slow.firstChild) slow.textContent = "";
+    }
+    B.raf = requestAnimationFrame(tick);
+  }
+  // progress(text, p, cap): p is how far along we are (0 to 100); the blob creeps toward cap until the next step
+  function progress(text, p, cap) {
+    if (!$("#ahw-core")) blobView();
+    if (p !== undefined && p > B.target) { B.target = p; B.changed = performance.now(); }
+    B.cap = Math.max(B.target, cap !== undefined ? cap : Math.min(97, B.target + 12));
+    if (B.target >= 100) B.cap = 100;
+    if (text !== B.text) { B.text = text; B.changed = performance.now(); $("#ahw-status").textContent = text; }
+  }
+  function bump(p) { if (p > B.target) { B.target = p; B.changed = performance.now(); } }
   function fail(msg) {
     body(`<div class="err" style="margin-top:0">${msg}</div><div class="row"><button onclick="location.reload()">Try again</button></div>`);
   }
@@ -318,8 +386,8 @@
     $("#ahw-ver").textContent = "Data published " + meta.published;
 
     // Python loads while the passcode is typed.
-    progress("Starting the hub engine…", 5);
-    const pyReady = startPython(meta).then(() => { pct = Math.max(pct, 45); });
+    progress("Starting the hub engine…", 5, 42);
+    const pyReady = startPython(meta).then(() => bump(45));
     pyReady.catch(() => {});
 
     // Passcode: remembered in this browser as a key that cannot be read back.
@@ -335,7 +403,7 @@
       }
     }
 
-    progress("Starting the hub engine…", 10);
+    progress("Starting the hub engine…", 10, 44);
     try { await pyReady; } catch (e) { console.error(e); fail("The hub engine could not start in this browser. Use a current version of Chrome, Edge or Safari."); return; }
 
     // The hub's code (encrypted, because it carries account setup and goals)
@@ -385,6 +453,8 @@
     installBridge();
     progress("Opening the hub…", 100);
     await import(new URL(meta.entry, location.href).href);
+    await new Promise((r) => setTimeout(r, 450));      // let the blob reach 100%
+    stopBlob();
     $("#ahw").remove();
   }
   window.__adsHubSave = saveNow;
