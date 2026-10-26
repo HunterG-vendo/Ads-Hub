@@ -31,7 +31,11 @@
     } catch { /* storage off: the passcode is asked again next time */ }
   }
   function deleteDb(name) {
-    return new Promise((res) => { const r = indexedDB.deleteDatabase(name); r.onsuccess = r.onerror = r.onblocked = () => res(); });
+    return new Promise((res, rej) => {
+      const r = indexedDB.deleteDatabase(name);
+      const t = setTimeout(() => rej(new Error("blocked")), 10000);
+      r.onsuccess = r.onerror = () => { clearTimeout(t); res(); };
+    });
   }
 
   // ---------------- screen ----------------
@@ -68,7 +72,8 @@
   const logo = `<svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#111113"/><path d="M8 22 L14 14 L18 18 L24 10" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
   function mount() {
-    const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
+    if ($("#ahw")) return;
+    if (!$("#ahw-css")) { const st = document.createElement("style"); st.id = "ahw-css"; st.textContent = css; document.head.appendChild(st); }
     const d = document.createElement("div"); d.id = "ahw";
     d.innerHTML = `<div class="card"><div class="brand">${logo}<span>Ads Hub</span></div><p class="sub">Test version for the PLTFRM ads team</p><div id="ahw-body"></div>
       <div class="foot"><span id="ahw-ver"></span><a href="?reset=1" id="ahw-reset">Start over</a></div></div>`;
@@ -103,6 +108,66 @@
       $("#ahw-keep").onclick = () => resolve(false);
       $("#ahw-new").onclick = () => resolve(true);
     });
+  }
+
+  // ---------------- one tab at a time ----------------
+  // Each tab holds its own copy of the database, so two open tabs would overwrite each other's saves and can
+  // block each other's storage. The hub runs in one tab; another tab can take over with "Use here".
+  const LOCK = "adshub-web-tab";
+  const chan = "BroadcastChannel" in window ? new BroadcastChannel("adshub-web") : null;
+  let active = false;
+  function holdLock(steal) {
+    return new Promise((resolve) => {
+      if (!navigator.locks) { resolve(true); return; }
+      navigator.locks.request(LOCK, steal ? { steal: true } : { ifAvailable: true }, (lock) => {
+        if (!lock) { resolve(false); return undefined; }
+        resolve(true);
+        return new Promise(() => {});            // held until this tab closes or another tab takes over
+      }).catch(() => { if (active) movedAway(); });
+    });
+  }
+  function closeIdb() {
+    try {
+      const dbs = py && py.FS.filesystems.IDBFS.dbs;
+      for (const k of Object.keys(dbs || {})) { try { dbs[k].close(); } catch { /* closed */ } delete dbs[k]; }
+    } catch { /* nothing open */ }
+  }
+  function guardIdb() {
+    // If another tab needs to clear or upgrade the storage, let go instead of blocking it.
+    try {
+      const dbs = py.FS.filesystems.IDBFS.dbs;
+      for (const k of Object.keys(dbs)) dbs[k].onversionchange = () => { try { dbs[k].close(); } catch { /* closed */ } delete dbs[k]; };
+    } catch { /* not open */ }
+  }
+  async function movedAway() {
+    active = false;
+    clearTimeout(saveTimer); saveTimer = null;
+    try { await saveNow(); } catch { /* best effort */ }
+    closeIdb();
+    if (chan) chan.postMessage("released");
+    mount();
+    body(`<p style="margin:0 0 4px;font-weight:500">Ads Hub is open in another tab</p>
+      <p class="sub" style="margin:0">Your work here was saved. Close this tab, or bring the hub back here.</p>
+      <div class="row"><button id="ahw-here">Use here</button></div>`);
+    $("#ahw-here").onclick = () => location.replace(location.pathname + "?take=1" + location.hash);
+  }
+  function askTakeOver() {
+    return new Promise((resolve) => {
+      body(`<p style="margin:0 0 4px;font-weight:500">Ads Hub is already open in another tab</p>
+        <p class="sub" style="margin:0">Use that tab, or open the hub here instead. The other tab saves your work and pauses.</p>
+        <div class="row"><button id="ahw-here">Use here</button></div>`);
+      $("#ahw-here").onclick = () => resolve(true);
+    });
+  }
+  function waitReleased(ms) {
+    return new Promise((res) => {
+      if (!chan) { setTimeout(res, 1500); return; }
+      const t = setTimeout(res, ms);
+      chan.onmessage = (e) => { if (e.data === "released") { clearTimeout(t); res(); } };
+    });
+  }
+  function withTimeout(p, ms) {
+    return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
   }
 
   // ---------------- crypto ----------------
@@ -212,6 +277,8 @@
     window.fetch = (input, init) => {
       const target = apiPath(input);
       if (!target) return nativeFetch(input, init);
+      if (!active) return Promise.resolve(new Response(JSON.stringify({ detail: "Ads Hub is open in another tab." }),
+        { status: 409, headers: { "Content-Type": "application/json" } }));
       return bridged(input, init, target).catch((e) => {
         console.error(e);
         return new Response(JSON.stringify({ detail: "The hub engine hit an error: " + String(e && e.message || e).split("\n").slice(-2).join(" ") }),
@@ -224,9 +291,21 @@
   async function main() {
     mount();
     const params = new URLSearchParams(location.search);
-    if (params.has("reset")) {
+    const reset = params.has("reset");
+    let got = await holdLock(false);
+    if (!got) {
+      if (!reset && !params.has("take")) await askTakeOver();
+      progress("Moving the hub to this tab…", 2);
+      const released = waitReleased(6000);
+      got = await holdLock(true);
+      await released;
+    }
+    active = true;
+    if (params.has("take")) history.replaceState(null, "", location.pathname + location.hash);
+    if (reset) {
       progress("Clearing the hub data in this browser…", 5);
-      await deleteDb(PERSIST); await deleteDb(KV_DB);
+      try { await deleteDb(PERSIST); await deleteDb(KV_DB); }
+      catch { fail("Could not clear the hub data while another Ads Hub tab is open. Close the other tabs, then click Try again."); return; }
       location.replace(location.pathname + location.hash);
       return;
     }
@@ -269,7 +348,13 @@
     // This browser's data
     py.FS.mkdirTree(PERSIST);
     py.FS.mount(py.FS.filesystems.IDBFS, {}, PERSIST);
-    await syncfs(true);
+    try { await withTimeout(syncfs(true), 60000); }
+    catch (e) {
+      console.error(e);
+      fail("The hub's saved data did not open. Close any other Ads Hub tabs and click Try again.\nIf it keeps happening, click Start over.");
+      return;
+    }
+    guardIdb();
     const localVersion = readText(PERSIST + "/snapshot.txt");
     const skipped = readText(PERSIST + "/skipped.txt");
     let load = !exists(DB_PATH);
