@@ -1,0 +1,66 @@
+{
+ "published": "Oct 26, 2026 2:37 PM",
+ "entry": "./assets/index-Ctt_Eaoy.js",
+ "packages": [
+  "numpy",
+  "pandas",
+  "python-dateutil",
+  "pytz",
+  "six",
+  "sqlite3",
+  "pydantic",
+  "pydantic-core",
+  "typing-extensions",
+  "annotated-types",
+  "typing-inspection",
+  "idna"
+ ],
+ "wheels": [
+  "annotated_doc-0.0.5-py3-none-any.whl",
+  "anyio-4.9.0-py3-none-any.whl",
+  "et_xmlfile-2.0.0-py3-none-any.whl",
+  "fastapi-0.121.3-py3-none-any.whl",
+  "openpyxl-3.1.5-py2.py3-none-any.whl",
+  "python_multipart-0.0.32-py3-none-any.whl",
+  "sniffio-1.3.1-py3-none-any.whl",
+  "sqlalchemy-2.0.55-py3-none-any.whl",
+  "starlette-0.50.0-py3-none-any.whl"
+ ],
+ "kdf": {
+  "salt": "0DtZ8dBZ0Kp4nOWPOBxx3Q==",
+  "iterations": 310000
+ },
+ "check": {
+  "iv": "t9KoXtPFReGbD8ps",
+  "data": "R1lLnCScd1JnI/DgPb3T9lpM7sbE7Sc="
+ },
+ "code": {
+  "iv": "/NQ3YTw6x/TS7SQm",
+  "version": "74ac361f61be",
+  "parts": [
+   {
+    "file": "data/code-74ac361f61be.01.bin",
+    "size": 78292
+   }
+  ]
+ },
+ "db": {
+  "iv": "zwswD/mYttggnnSO",
+  "version": "9f126fce0b2d",
+  "size": 135122944,
+  "parts": [
+   {
+    "file": "data/hub-9f126fce0b2d.01.bin",
+    "size": 8388608
+   },
+   {
+    "file": "data/hub-9f126fce0b2d.02.bin",
+    "size": 8388608
+   },
+   {
+    "file": "data/hub-9f126fce0b2d.03.bin",
+    "size": 821192
+   }
+  ]
+ }
+}
