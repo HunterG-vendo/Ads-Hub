@@ -64,6 +64,8 @@
   #ahw .row button{flex:1}
   #ahw .err{color:#c62828;margin-top:10px;min-height:1em;white-space:pre-wrap;word-break:break-word}
   #ahw .loader{width:min(280px,100%);display:grid;gap:12px;text-align:center}
+  #ahw .lrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;text-align:left}
+  #ahw .lnum{font-family:"Geist Mono Variable",ui-monospace,monospace;font-variant-numeric:tabular-nums;color:#111113;font-weight:500;flex:none}
   #ahw .ltrack{position:relative;height:4px;border-radius:999px;background:#ececf0;overflow:hidden}
   #ahw .lfill{position:absolute;inset:0;background:#111113;border-radius:999px;transform-origin:left center;transform:scaleX(0);will-change:transform}
   #ahw .lsheen{position:absolute;top:0;bottom:0;left:0;width:30%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);
@@ -96,24 +98,41 @@
   // ---- loading view: status text and a thin bar ----
   // The page's main thread is busy starting Python, so the bar moves with CSS transforms only (the browser animates
   // those on its own thread). Each step sets a target; a long eased transition creeps toward the next step.
-  const B = { timer: 0, target: 0, cap: 0, changed: 0, text: "" };
+  const B = { timer: 0, creep: 0, target: 0, cap: 0, changed: 0, text: "", num: -1 };
   function blobView() {
     $("#ahw-body").innerHTML = `<div class="loader">
-      <div id="ahw-status" role="status" aria-live="polite"></div>
+      <div class="lrow"><span id="ahw-status" role="status" aria-live="polite"></span><span class="lnum" id="ahw-num">0%</span></div>
       <div class="ltrack"><div class="lfill" id="ahw-fill"></div><div class="lsheen"></div></div>
       <div class="slow" id="ahw-slow"></div></div>`;
-    B.changed = performance.now();
-    clearInterval(B.timer); B.timer = setInterval(watch, 2000);
+    B.changed = performance.now(); B.num = -1;
+    clearInterval(B.timer); B.timer = setInterval(watch, 250);
   }
-  function stopBlob() { clearInterval(B.timer); B.timer = 0; }
+  function stopBlob() { clearInterval(B.timer); clearTimeout(B.creep); B.timer = 0; }
   function moveBar() {
     const f = $("#ahw-fill"); if (!f) return;
+    clearTimeout(B.creep);
     const done = B.target >= 100;
-    f.style.transition = done ? "transform .3s ease-out" : "transform 14s cubic-bezier(.15,.7,.25,1)";
-    f.style.transform = `scaleX(${(done ? 1 : B.cap / 100).toFixed(3)})`;
+    if (done) {
+      f.style.transition = "transform .3s ease-out"; f.style.transform = "scaleX(1)";
+      if ($("#ahw-num")) { B.num = 100; $("#ahw-num").textContent = "100%"; }
+      return;
+    }
+    // catch up to real progress quickly (never backward), then creep slowly toward the next step
+    const now = new DOMMatrixReadOnly(getComputedStyle(f).transform).a;
+    const to = Math.max(now, B.target / 100);
+    f.style.transition = "transform .45s ease-out";
+    f.style.transform = `scaleX(${to.toFixed(3)})`;
+    B.creep = setTimeout(() => {
+      f.style.transition = "transform 16s cubic-bezier(.2,.6,.3,1)";
+      f.style.transform = `scaleX(${Math.max(to, B.cap / 100).toFixed(3)})`;
+    }, 500);
   }
   function watch() {
     const slow = $("#ahw-slow"); if (!slow) { stopBlob(); return; }
+    // the % reads the bar's current position, so it always matches the bar and never runs backward
+    const f = $("#ahw-fill"), m = new DOMMatrixReadOnly(getComputedStyle(f).transform);
+    const n = B.target >= 100 && m.a > 0.99 ? 100 : Math.min(99, Math.floor(m.a * 100));
+    if (n > B.num) { B.num = n; $("#ahw-num").textContent = n + "%"; }
     const stuck = performance.now() - B.changed > 40000;
     if (stuck && !slow.firstChild) slow.innerHTML = `Taking longer than usual. <a href="javascript:location.reload()">Reload</a>`;
     if (!stuck && slow.firstChild) slow.textContent = "";
