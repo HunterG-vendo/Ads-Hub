@@ -427,6 +427,12 @@
     await syncfs(false);               // the first open can add settings or columns
     installBridge();
     progress("Opening the hub…", 100);
+    // A fresh open (no person picked yet in this tab) always starts on Pacing, even if the link or the
+    // browser's history points at an account page. Reloads inside the same tab keep the page you were on.
+    try {
+      if (!sessionStorage.getItem("adshub:who") && location.hash && !/^#\/?$/.test(location.hash))
+        history.replaceState(null, "", location.pathname + location.search + "#/");
+    } catch { /* storage off */ }
     await import(new URL(meta.entry, location.href).href);
     await new Promise((r) => setTimeout(r, 300));      // let the bar reach the end
     stopBlob();
