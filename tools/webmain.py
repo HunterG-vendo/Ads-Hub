@@ -10,6 +10,7 @@ import os
 import sys
 import types
 from pathlib import Path
+from urllib.parse import quote
 
 
 def _stub_ssl():
@@ -112,7 +113,7 @@ async def handle(method: str, path: str, query: str, headers, body):
         "method": method.upper(),
         "scheme": "http",
         "path": path,
-        "raw_path": path.encode(),
+        "raw_path": quote(path).encode(),
         "root_path": "",
         "query_string": (query or "").encode(),
         "headers": [(str(k).lower().encode("latin-1"), str(v).encode("latin-1")) for k, v in headers],
