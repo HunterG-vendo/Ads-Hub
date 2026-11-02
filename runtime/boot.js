@@ -312,7 +312,9 @@
     let p = null;
     if (u.pathname.startsWith("/api/")) p = u.pathname;
     else if (u.pathname.startsWith(SITE + "api/")) p = u.pathname.slice(SITE.length - 1);
-    return p ? { path: p, query: u.search.replace(/^\?/, "") } : null;
+    if (!p) return null;
+    try { p = decodeURIComponent(p); } catch { /* keep as is */ }      // the engine expects a decoded path (file names with spaces)
+    return { path: p, query: u.search.replace(/^\?/, "") };
   }
   async function bridged(input, init, target) {
     const req = input instanceof Request && !init ? input : new Request(new URL(target.path, location.origin), init || {});
@@ -347,6 +349,35 @@
           { status: 500, headers: { "Content-Type": "application/json" } });
       });
     };
+    // Download links that point at the hub's /api (bulk sheet exports, "Download again") would go to GitHub and 404.
+    // Catch them, fetch the file from the engine, and save it from memory instead.
+    addEventListener("click", (e) => {
+      const a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+      if (!a) return;
+      const href = a.getAttribute("href");
+      if (!href || !apiPath(href)) return;
+      e.preventDefault(); e.stopPropagation();
+      saveFromApi(href, a.getAttribute("download"));
+    }, true);
+  }
+  async function saveFromApi(href, name) {
+    try {
+      const r = await window.fetch(href);
+      if (!r.ok) { let m = r.status + " " + r.statusText; try { m = (await r.json()).detail || m; } catch { /* not json */ } throw new Error(m); }
+      const blob = await r.blob();
+      const cd = r.headers.get("content-disposition") || "";
+      const fromHeader = (cd.match(/filename\*=UTF-8''([^;]+)/i) || [])[1] || (cd.match(/filename="?([^";]+)"?/i) || [])[1];
+      let file = name || (fromHeader && decodeURIComponent(fromHeader));
+      if (!file) { try { file = decodeURIComponent(href.split("?")[0].split("/").pop()); } catch { file = "download"; } }
+      const url = URL.createObjectURL(blob);
+      const t = document.createElement("a"); t.href = url; t.download = file; t.style.display = "none";
+      document.body.appendChild(t); t.click(); t.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      console.error(err);
+      pill("Could not download the file: " + String(err && err.message || err).slice(0, 120), true);
+      setTimeout(() => pill("", false), 6000);
+    }
   }
 
   // ---------------- start ----------------
